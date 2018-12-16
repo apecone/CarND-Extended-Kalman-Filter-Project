@@ -63,6 +63,10 @@ class KalmanFilter {
 
   // measurement covariance matrix
   Eigen::MatrixXd R_;
+  
+  // previous phi
+  float prev_phi_;
+  
 };
 
 #endif // KALMAN_FILTER_H_
