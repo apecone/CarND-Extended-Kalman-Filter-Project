@@ -24,7 +24,6 @@ void KalmanFilter::Init(VectorXd &x_in, MatrixXd &P_in, MatrixXd &F_in,
   H_ = H_in; // measurement matrix
   R_ = R_in; // measurement covariance matrix
   Q_ = Q_in; // process covariance matrix
-  prev_phi_ = 0; // previous phi, for sign changes
 }
 
 void KalmanFilter::Predict() {
@@ -67,42 +66,6 @@ void KalmanFilter::UpdateEKF(const VectorXd &z) {
   
   float rho = sqrt(px*px + py*py);
   float phi = atan2(py, px);
-  
-  // The reviewer suggested that I normalize phi to fix my RMSE problem, but I thought arctan2 already
-  // normalized phi between [-pi, pi] ?  Here's a quick check to see if phi is ever greater than 3.14
-  // Quick note: I didn't see any exceptions thrown during my testing
-  if (fabs(phi) >= M_PI) {
-    std::cout << "----------------------------THE REVIEWER WAS RIGHT! " << phi << " ----------------------------" << std::endl;
-    throw "The reviewer was right!  Phi wasn't normalized between -pi and pi!";
-  }
-  
-  // Bingo!  phi's sign change is really throwing off 
-  // our measurement of velocity in euclidean space.
-  //
-  // Question: How come the radar is reading a complete change in 
-  // direction while having a similarly large radial distance?
-  // This seems like a bug in the measurement reading, not in my 
-  // implementation of EKF.  Nevertheless, let's go ahead and handle
-  // this particular corner case.
-  //
-  // Resolve drastic changes where phi goes from approx 3.19 (ground truth larger than pi) to approx -3.11
-  // Quick note: I believe this happens around line 274 and 276 in the dataset (below).
-  //
-  /* From Dataset 1.  Phi changes from 3.19 (ground truth larger than pi?) to -3.11 in 0.5 seconds with rho 
-                      of 6.0 and 5.6 respectively. Phi_dot increases from 1.77 to 2.5.  So, this means the 
-                      object has moved a total of 11.6 in 0.5 seconds and has increased its radial velocity away from                         the observer. Is this anomaly even supposed to be here?
-  
-     R	6.005131e+00	3.190031e+00	1.776367e+00	1477010456650000	-5.378204e+00	6.547190e-02	-2.154769e+00	-4.693737e+00	4.282015e+00	-1.633729e-01
-     L	-5.299723e+00	-2.129817e-01	1477010456700000	-5.486900e+00	-1.687723e-01	-2.191805e+00	-4.673350e+00	4.273847e+00	-1.699593e-01
-     R	5.646317e+00	-3.115994e+00	2.506136e+00	1477010456750000	-5.597482e+00	-4.019714e-01	-2.230141e+00	-4.651846e+00	4.265349e+00	-1.765190e-01
-  */
-  if (fabs(prev_phi_ + phi) < (fabs(prev_phi_))) {
-    return;
-  }
-  
-  // If there was no crazy measurement, record the previous phi and keep going...
-  prev_phi_ = phi;
-  
   float rho_dot = (px*vx + py*vy) / rho;
   
   VectorXd z_pred(3);
@@ -110,6 +73,19 @@ void KalmanFilter::UpdateEKF(const VectorXd &z) {
   
   // With h(x'), do your typical Kalman update steps
   VectorXd y = z - z_pred;
+  
+  // Finally understand what the reviewer was talking about
+  // Normalizing y(1) to be between -pi and pi
+  while (y(1) > M_PI) 
+  {
+    y(1) -= (2*M_PI);
+  } 
+  
+  while (y(1) < -M_PI) 
+  {
+    y(1) += (2*M_PI);
+  }
+  
   MatrixXd Ht = H_.transpose();
   MatrixXd S = H_ * P_ * Ht + R_;
   MatrixXd Si = S.inverse();
